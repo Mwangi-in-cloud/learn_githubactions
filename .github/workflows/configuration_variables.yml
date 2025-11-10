@@ -11,6 +11,6 @@ jobs:
     env:
       Greeting: hello
     steps:
-     - name: "I am new here"
+     - name: "config variables are defined under the settings in the variables and secrets"
        run: echo "$Greeting $First_Name is using $cloud with project ${{ vars.PROJECT_ID }} "
   
