@@ -1,0 +1,15 @@
+name: Testing Workflow variables
+on: 
+  workflow_dispatch
+env:
+  cloud: google-cloud
+  First_Name: lingo
+
+jobs: 
+  greeting_job:
+    runs-on: ubuntu-latest
+    env: 
+      Greeting: Hello
+    steps: 
+    - name: "workflows var are native to the workflow"
+      run: echo "$Greeting $First_Name is using $cloud"
