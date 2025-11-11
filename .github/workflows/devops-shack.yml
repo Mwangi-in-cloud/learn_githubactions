@@ -1,1 +1,126 @@
 
+name: Node.js CICD
+
+on:
+  workflow_dispatch
+ 
+
+jobs: 
+  compile: 
+    runs-on: ubuntu-latest
+    steps: 
+     - name: checking out the code
+       uses: actions/checkout@v4
+     - name: setup Node.js
+       uses: actions/setup-node@v4
+       with: 
+         node-version: "23"
+     - name: frontendchecks 
+       run: | 
+         cd client
+         find  -name "*.js" exec node --check {} +
+     - name: Compile the backend
+       run: |
+         cd api 
+         find . -name "*.js" exec node --check {} +
+  gitleaks-scan:
+    runs-on: ubuntu-latest
+    needs: compile 
+    steps: 
+      - name: checkout code
+        uses: actions/checkout@v4 
+      - name: gitleaks setup 
+        uses: gitleaks/gitleaks-action@v2 
+      - name: gitleaks-scan 
+        run: | 
+          gitleaks detect --source ./client --exit-code 1
+          gitleaks detect --source ./api --exit-code 1
+  trivy-scan:
+    runs-on: ubuntu-latest 
+    needs: gitleaks-scan 
+    steps: 
+      - name: checkout the code 
+        uses: actions/checkout@v4 
+      - name: run trivy vulnerability scannner
+        uses: aquasecurity/trivy-actions@0.28.0
+        with: 
+          scan-type: 'fs' ## means file system
+          scan-ref: '.' ## path you want to scan
+          format: 'table' ## the output format we expect
+          ignore-unfixed: true 
+          vuln-type: 'os-library'
+          severity: 'CRITICAL-HIGH' 
+  sonar-frontend: 
+    runs-on: ubuntu-latest 
+    needs: trivy-scan 
+    steps: 
+     - name: checkout code 
+       uses: actions/checkout@v4 
+     - name: sonarqube scan {client}
+       uses: sonarsource/sonarqube-scan-action@master
+       with: 
+        projectBasedDir: client
+        args: > 
+         -Dsonar.projectKey=myorg_client
+         -Dsonar.projectName=myorg_client
+         -Dsonar.sources=.
+         -Dsonar.exclusions=**/node_modules/**,**/dist/**.**/build/**
+       env:
+         SONAR_TOKEN: ${{secrets.SONAR_TOKEN}}
+         SONAR_HOST_URL: ${{secrets.SONAR_HOST_URL}}
+  sonar-backend: 
+    runs-on: ubuntu-latest 
+    needs: sonar-frontend 
+    steps: 
+     - name: checkout code 
+       uses: actions/checkout@v4     
+
+  build_backend_docker_image_and_push:
+    runs-on:  ubuntu-latest 
+    needs: sonar-backend 
+    steps: 
+      - name: checkout code 
+        uses: actions/checkout@v4 
+      - name: login to dockerhub
+        uses: docker/login-action@v3 
+        with: 
+          username: $ {{vars.DOCKERHUB_USERNAME}}
+          password: $ {{secrets.DOCKERHUB_TOKEN}}
+      - name: setup QEMU 
+        uses: docker/setup-qemu-action@v3 
+      - name: setup dokcer buildx 
+        uses: docker/setup-buildx-action@v3
+      - name: build and push docker image 
+        uses: docker/build-push-action@v6 
+        with: 
+          context: ./api 
+          push: true 
+          tags: cronosm4m/backend:latest 
+          file: ./api/Dockerfile 
+  trivy-image-scan:
+    runs-on: ubuntu-latest 
+    needs: build_backend_docker_image_and_push
+    steps: 
+      - name: checkout the code 
+        uses: actions/checkout@v4 
+      - name: run trivy image scan for backend 
+        uses: aquasecurity/trivy-actions@0.28.0
+        with: 
+          scan-type: 'image' ## means the docker image
+          scan-ref: '.' ## path you want to scan
+          format: 'table' ## the output format we expect
+          ignore-unfixed: true 
+          vuln-type: 'os-library'
+          severity: 'CRITICAL-HIGH'
+          exit-code: "0"
+      - name: run trivy image scan for frontend
+        uses: aquasecurity/trivy-actions@0.28.0
+        with: 
+          scan-type: 'image' ## means the docker image
+          scan-ref: '.' ## path you want to scan
+          format: 'table' ## the output format we expect
+          ignore-unfixed: true 
+          vuln-type: 'os-library'
+          severity: 'CRITICAL-HIGH'
+          exit-code: "0"
+    
